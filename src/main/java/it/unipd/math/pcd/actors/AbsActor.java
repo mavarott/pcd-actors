@@ -45,7 +45,39 @@ package it.unipd.math.pcd.actors;
  * @since 1.0
  */
 public abstract class AbsActor<T extends Message> implements Actor<T> {
+    private Mailbox<T> mailbox_ = new Mailbox<>();
+    protected boolean is_Stopped = false;
+    protected Thread messages_executor = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            while (!is_Stopped) {
+                synchronized (mailbox_) {
+                    try {
+                        while (mailbox_.sizeOfMailbox() == 0)
+                            mailbox_.wait();
+                        T message_ = mailbox_.getMessage();
+                        sender = mailbox_.getSender();
+                        mailbox_.removeFromMailbox();
+                        receive(message_);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            synchronized (mailbox_) {
+                while (mailbox_.sizeOfMailbox() != 0) {
+                    T message_ = mailbox_.getMessage();
+                    sender = mailbox_.getSender();
+                    mailbox_.removeFromMailbox();
+                    receive(message_);
+                }
+            }
+        }
+    });
 
+    public AbsActor() {
+        messages_executor.start();
+    }
     /**
      * Self-reference of the actor
      */
@@ -65,5 +97,19 @@ public abstract class AbsActor<T extends Message> implements Actor<T> {
     protected final Actor<T> setSelf(ActorRef<T> self) {
         this.self = self;
         return this;
+    }
+
+    protected final void stopIncomingMessages() {
+        is_Stopped = true;
+    }
+
+    protected final void receiveMessage(T message, ActorRef<T> sender) {
+        synchronized (mailbox_) {
+            if (!is_Stopped) {
+                MailMessage<T> message_ = new MailMessage<>(message, sender);
+                mailbox_.addToMailbox(message_);
+                mailbox_.notifyAll();
+            }
+        }
     }
 }
